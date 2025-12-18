@@ -1,0 +1,55 @@
+name: ThreatFox Daily IP IOC Crawler
+
+on:
+  schedule:
+    # Runs every 24 hours at 02:00 UTC (~07:30 IST)
+    - cron: "0 2 * * *"
+
+  # Manual trigger
+  workflow_dispatch:
+
+jobs:
+  threatfox-crawler:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # IMPORTANT for rebase
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Run ThreatFox IP Crawler
+        run: |
+          python ThreatFoxIP.py
+
+      - name: Debug output directory
+        run: |
+          echo "[*] Listing output directory"
+          ls -lah output || echo "Output directory not found"
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Add CSV files only if they exist
+          git add output/*.csv || echo "No CSV files to add"
+
+          # Commit only if something changed
+          git diff --cached --quiet || git commit -m "Daily ThreatFox IP IOC update"
+
+          # Sync with remote safely
+          git pull --rebase origin main
+
+          # Push changes
+          git push origin main
