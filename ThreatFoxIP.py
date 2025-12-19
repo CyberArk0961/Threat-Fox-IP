@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-ThreatFox IP:PORT IOC Crawler (RAW SCHEMA – FIXED)
+ThreatFox IP:PORT IOC Crawler (RAW SCHEMA – FINAL)
 
 Source:
 https://threatfox.abuse.ch/export/csv/ip-port/recent/
 
 - Preserves original ThreatFox column names
-- Handles BOM, comments (#), quoted headers
+- Handles semicolon-delimited CSV
+- Handles BOM and comment lines (#)
 - Deduplicates on ioc_id
-- Produces non-empty, Defender/SIEM-ready CSV
+- Produces Defender/SIEM-ready CSV
 """
 
 import requests
@@ -47,9 +48,9 @@ FIELDNAMES = [
 # FETCH CSV
 # =====================
 def fetch_threatfox_csv():
-    r = requests.get(THREATFOX_CSV_URL, headers=HEADERS, timeout=60)
-    r.raise_for_status()
-    return r.text
+    response = requests.get(THREATFOX_CSV_URL, headers=HEADERS, timeout=60)
+    response.raise_for_status()
+    return response.text
 
 # =====================
 # PARSE CSV (ROBUST)
@@ -62,31 +63,20 @@ def parse_csv(raw_csv):
     raw_csv = raw_csv.lstrip("\ufeff")
 
     lines = []
-    header_found = False
-
     for line in raw_csv.splitlines():
         if not line:
             continue
-
-        # Skip comments
         if line.startswith("#"):
             continue
-
-        # First non-comment line is header
-        if not header_found:
-            lines.append(line)
-            header_found = True
-            continue
-
         lines.append(line)
 
     if not lines:
         return records
 
-    reader = csv.DictReader(lines)
+    reader = csv.DictReader(lines, delimiter=";")
 
     for row in reader:
-        ioc_id = row.get("ioc_id", "")
+        ioc_id = row.get("ioc_id")
         if not ioc_id:
             continue
 
