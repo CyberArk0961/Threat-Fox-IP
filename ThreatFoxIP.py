@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
-ThreatFox IP:PORT IOC Crawler (RAW SCHEMA)
+ThreatFox IP:PORT IOC Crawler (RAW SCHEMA – FIXED)
 
 Source:
 https://threatfox.abuse.ch/export/csv/ip-port/recent/
 
-- Fetches recent IP:PORT IOCs
-- Preserves ThreatFox original schema
-- Removes comment lines (#)
+- Preserves original ThreatFox column names
+- Handles BOM, comments (#), quoted headers
 - Deduplicates on ioc_id
-- Produces Defender/SIEM-ready CSV
+- Produces non-empty, Defender/SIEM-ready CSV
 """
 
 import requests
@@ -48,28 +47,50 @@ FIELDNAMES = [
 # FETCH CSV
 # =====================
 def fetch_threatfox_csv():
-    response = requests.get(THREATFOX_CSV_URL, headers=HEADERS, timeout=60)
-    response.raise_for_status()
-    return response.text
+    r = requests.get(THREATFOX_CSV_URL, headers=HEADERS, timeout=60)
+    r.raise_for_status()
+    return r.text
 
 # =====================
-# PARSE CSV (RAW)
+# PARSE CSV (ROBUST)
 # =====================
 def parse_csv(raw_csv):
     records = []
     seen_ids = set()
 
-    reader = csv.DictReader(
-        line for line in raw_csv.splitlines()
-        if line and not line.startswith("#")
-    )
+    # Remove BOM if present
+    raw_csv = raw_csv.lstrip("\ufeff")
+
+    lines = []
+    header_found = False
+
+    for line in raw_csv.splitlines():
+        if not line:
+            continue
+
+        # Skip comments
+        if line.startswith("#"):
+            continue
+
+        # First non-comment line is header
+        if not header_found:
+            lines.append(line)
+            header_found = True
+            continue
+
+        lines.append(line)
+
+    if not lines:
+        return records
+
+    reader = csv.DictReader(lines)
 
     for row in reader:
-        ioc_id = row.get("ioc_id", "").strip()
+        ioc_id = row.get("ioc_id", "")
         if not ioc_id:
             continue
 
-        # Deduplicate on IOC ID
+        ioc_id = ioc_id.strip()
         if ioc_id in seen_ids:
             continue
         seen_ids.add(ioc_id)
@@ -87,7 +108,11 @@ def save_csv(data):
     output_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
 
     with open(output_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=FIELDNAMES, quoting=csv.QUOTE_ALL)
+        writer = csv.DictWriter(
+            f,
+            fieldnames=FIELDNAMES,
+            quoting=csv.QUOTE_ALL
+        )
         writer.writeheader()
         writer.writerows(data)
 
@@ -100,7 +125,7 @@ def main():
     print("[*] Fetching ThreatFox IP:PORT IOCs...")
     raw_csv = fetch_threatfox_csv()
 
-    print("[*] Parsing CSV (preserving raw schema)...")
+    print("[*] Parsing CSV...")
     data = parse_csv(raw_csv)
 
     print("[*] Writing output CSV...")
